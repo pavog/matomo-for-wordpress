@@ -115,6 +115,17 @@ class Website {
     return this.wpNonce!;
   }
 
+  async gotoWooCommerceSetupWizard() {
+      await browser.url(`${await this.baseUrl()}/wp-admin/admin.php?page=wc-admin&path=%2Fsetup-wizard`);
+      const skipSetupLink = $(SKIP_SETUP_LINK_SELECTOR);
+      try {
+          await skipSetupLink.waitForDisplayed();
+      } catch (e) {
+          // ignore
+      }
+      return skipSetupLink;
+  }
+
   /**
    * Misc Notes:
    * - for simpler code here we disable woocommerce's reactified settings page in test-utility-plugin.php
@@ -128,13 +139,14 @@ class Website {
 
     const baseUrl = await this.baseUrl();
 
-    await browser.url(`${baseUrl}/wp-admin/admin.php?page=wc-admin&path=%2Fsetup-wizard`);
-    const skipSetupLink = $(SKIP_SETUP_LINK_SELECTOR);
-    try {
-      await skipSetupLink.waitForDisplayed();
-    } catch (e) {
-      // ignore
-    }
+    await this.gotoWooCommerceSetupWizard();
+
+    // on php 7.2, setting the permalink via wp cli somehow causes the woocommerce setup to break.
+    // visiting the permalink settings page, then going back to the setup wizard, fixes this. no
+    // idea why.
+    await browser.url(`${baseUrl}/wp-admin/options-permalink.php`)
+    await $('#permalink-input-plain').waitForExist({ timeout: 30000 });
+    const skipSetupLink = await this.gotoWooCommerceSetupWizard();
 
     const alreadyConfigured = !(await skipSetupLink.isExisting());
     if (alreadyConfigured) {
@@ -150,19 +162,28 @@ class Website {
     if (await possibleModalButton.isExisting()) { // woocommerce version that works with php 7.2
       await possibleModalButton.click();
     } else { // latest woocommerce
-      await $('#woocommerce-select-control-0__help').click();
+      await browser.execute(() => {
+        window.jQuery('#woocommerce-select-control-0__help')[0].click();
+      });
 
       await browser.execute(() => {
         window.jQuery('.woocommerce-select-control__option[id="woocommerce-select-control__option-0-US:CA"]').click();
       });
 
-      await $('.woocommerce-profiler-go-to-mystore__button-container > button').click();
+      await browser.execute(() => {
+        window.jQuery('.woocommerce-profiler-go-to-mystore__button-container > button')[0].click();
+      });
     }
 
-    await browser.waitUntil(async () => {
-      const url = await browser.getUrl()
-      return /page=wc-admin$/.test(url);
-    }, { timeout: 30000 });
+    try {
+        await browser.waitUntil(async () => {
+            const url = await browser.getUrl()
+            return /page=wc-admin$/.test(url);
+        }, {timeout: 30000});
+    } catch (e) {
+        console.log(`did not redirect to wc-admin, url is: ${await browser.getUrl()}`);
+        throw e;
+    }
 
     await $('.woocommerce-homescreen .woocommerce-experimental-list').waitForDisplayed();
 
@@ -178,7 +199,7 @@ class Website {
     await browser.url(`${baseUrl}/wp-admin/admin.php?page=wc-settings&tab=checkout`);
     await $('div.woocommerce').waitForExist();
 
-    await $('tr[data-gateway_id="cod"] .woocommerce-input-toggle,#woocommerce_cod_enabled').waitForExist({ timeout: 60000 });
+    await $('tr[data-gateway_id="cod"] .woocommerce-input-toggle,#woocommerce_cod_enabled,#_wc_offline_payment_methods_group').waitForExist({ timeout: 60000 });
 
     const isPaymentsSetup = await browser.execute(() => {
       return window.jQuery('tr[data-gateway_id="cod"] .woocommerce-input-toggle--enabled').length > 0
@@ -189,10 +210,27 @@ class Website {
       await this.retry(3, async () => {
         const isWooCommerceCodInputFound = await $('#woocommerce_cod_enabled').isExisting();
         const isWoocommerceCodToggleFound = await $('tr[data-gateway_id="cod"] .woocommerce-input-toggle').isExisting();
+        const isWoocommerceTakeOfflinePaymentsFound = await $('#_wc_offline_payment_methods_group').isExisting();
 
         const html = await browser.execute(() => document.querySelector('html')!.innerHTML);
 
-        if (isWooCommerceCodInputFound || html.includes('#woocommerce_cod_enabled')) {
+        if (isWoocommerceTakeOfflinePaymentsFound) {
+            await $('#_wc_offline_payment_methods_group').click();
+
+            await browser.waitUntil(async () => {
+                return await browser.execute(() => window.jQuery('.woocommerce-list__item-title:contains(Cash on delivery)').length > 0);
+            }, { timeout: 30000 });
+
+            await browser.execute(() => {
+                window.jQuery('.woocommerce-list__item-title:contains(Cash on delivery)').closest('.woocommerce-list__item-inner').find('a.is-primary')[0].click();
+            });
+
+            await browser.waitUntil(async () => {
+                return await browser.execute(() => {
+                    return window.jQuery('.woocommerce-list__item-inner a.is-secondary').length > 0;
+                });
+            }, { timeout: 30000 });
+        } else if (isWooCommerceCodInputFound || html.includes('#woocommerce_cod_enabled')) {
           await $('label[for="woocommerce_cod_enabled"]').click();
           await browser.execute(() => window.jQuery('.woocommerce-save-button')[0].click());
           await browser.waitUntil(async () => {
@@ -224,9 +262,10 @@ class Website {
               throw e;
             }
           } else {
-            console.log(html);
             throw new Error('unknown page html in woocommerce setup');
           }
+        } else {
+            throw new Error('unknown page html in woocommerce setup');
         }
       });
     }

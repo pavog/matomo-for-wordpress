@@ -13,6 +13,11 @@ if (!fs.existsSync(DOWNLOADS_DIR)) {
   fs.mkdirSync(DOWNLOADS_DIR);
 }
 
+// check for required environment variables
+if (!process.env.PHP_VERSION) {
+    throw new Error('Unexpected: PHP_VERSION environment variable cannot be found.');
+}
+
 async function saveScreenshotIfError(test, error) {
   if (error && !error.matcherResult) {
     const failureScreenshotName = test.title.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '') + '_failure';
@@ -273,8 +278,7 @@ export const config: Options.Testrunner = {
     if (error) {
       await saveScreenshotIfError(test, error);
 
-      // TODO: this does not appear to display in the reporter, even though it works in the core UI screenshot tests
-      test.error.message = `${test.error.message}\nCaptured Console Logs:\n${capturedLogs.join('\n')}`;
+      error.message = `${error.message}\nCaptured Console Logs:\n${capturedLogs.join('\n')}`;
 
       return;
     }

@@ -92,7 +92,7 @@ export default class Page {
       });
 
       return trackedPageviews >= expectedTrackingRequestCount;
-    });
+    }, { timeout: 20000 });
 
     await browser.pause(500); // wait for matomo to process the tracking requests
   }
@@ -159,6 +159,12 @@ export default class Page {
       return await browser.execute(() => {
         return !window.jQuery('#wpadminbar').is(':visible');
       });
+    });
+  }
+
+  async prepareBlogPostPageForScreenshot() {
+    await browser.execute(() => {
+      window.jQuery('#wpadminbar').hide();
     });
   }
 

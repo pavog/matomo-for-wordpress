@@ -135,6 +135,9 @@ class ReleaseTest extends MatomoAnalytics_TestCase {
 			'app/vendor/prefixed/twig/twig/src/Node/Expression/Filter/RawFilter.php',
 			'app/vendor/prefixed/twig/twig/src/Node/NameDeprecation.php',
 			'app/vendor/prefixed/twig/twig/src/Util/ReflectionCallable.php',
+
+			// added via patch
+			'app/plugins/CoreHome/stylesheets/a11y.less',
 		];
 
 		try {
@@ -153,6 +156,9 @@ class ReleaseTest extends MatomoAnalytics_TestCase {
 			$version          = \Piwik\Version::VERSION;
 			$core_release_url = "http://builds.matomo.org/matomo-$version.zip";
 			$core_release_zip = download_url( $core_release_url );
+			if ( is_wp_error( $core_release_zip ) ) {
+				throw new \Error( 'could not download core release: ' . $core_release_zip->get_error_message() );
+			}
 
 			// check release contents
 			$mwp_release_contents = array_flip( $this->get_zip_file_contents( $path_to_zip ) );
@@ -236,7 +242,7 @@ class ReleaseTest extends MatomoAnalytics_TestCase {
 			}
 			$this->assertEmpty( $irrelevant_mwp_ignored_files, 'The \$ignored_mwp_files variable has some out of date entries: ' . print_r( $irrelevant_mwp_ignored_files, true ) );
 		} finally {
-			if ( isset( $core_release_zip ) && is_file( $core_release_zip ) ) {
+			if ( isset( $core_release_zip ) && ! is_wp_error( $core_release_zip ) && is_file( $core_release_zip ) ) {
 				unlink( $core_release_zip );
 			}
 
