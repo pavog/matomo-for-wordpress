@@ -68,7 +68,7 @@ class Website {
     this.site = siteSlug;
   }
 
-  async login() {
+  async login(user?: string, pass?: string) {
     if (this.loggedIn) {
       return;
     }
@@ -84,8 +84,8 @@ class Website {
           window.jQuery('#user_login').val(l);
           window.jQuery('#user_pass').val(p);
         },
-        process.env.WORDPRESS_USER_LOGIN || 'root',
-        process.env.WORDPRESS_USER_PASS || 'pass'
+        user || process.env.WORDPRESS_USER_LOGIN || 'root',
+        pass || process.env.WORDPRESS_USER_PASS || 'pass'
       );
       await $('#wp-submit').click();
 
@@ -95,6 +95,17 @@ class Website {
         }));
       }, { timeout: 60000 });
     });
+  }
+
+  async logout() {
+    const logoutLink = $('#wp-admin-bar-logout a');
+    if (await logoutLink.isExisting()) {
+        await browser.execute(() => {
+            window.jQuery('#wp-admin-bar-logout a')[0].click();
+        });
+
+        await $('#user_login').waitForExist({ timeout: 60000 });
+    }
   }
 
   async getWpNonce() {
@@ -210,26 +221,35 @@ class Website {
       await this.retry(3, async () => {
         const isWooCommerceCodInputFound = await $('#woocommerce_cod_enabled').isExisting();
         const isWoocommerceCodToggleFound = await $('tr[data-gateway_id="cod"] .woocommerce-input-toggle').isExisting();
-        const isWoocommerceTakeOfflinePaymentsFound = await $('#_wc_offline_payment_methods_group').isExisting();
+        const isWoocommerceTakeOfflinePaymentsFound = await $('#_wc_offline_payment_methods_group,#experimental_wc_settings_payments_main').isExisting();
 
         const html = await browser.execute(() => document.querySelector('html')!.innerHTML);
 
         if (isWoocommerceTakeOfflinePaymentsFound) {
+          if (await $('#_wc_offline_payment_methods_group').isExisting()) {
             await $('#_wc_offline_payment_methods_group').click();
+          } else {
+            await $('#experimental_wc_settings_payments_main').click();
+          }
 
-            await browser.waitUntil(async () => {
-                return await browser.execute(() => window.jQuery('.woocommerce-list__item-title:contains(Cash on delivery)').length > 0);
-            }, { timeout: 30000 });
+          await browser.waitUntil(async () => {
+            return await browser.execute(() => !!window && !!window.jQuery);
+          }, { timeout: 30000 });
 
-            await browser.execute(() => {
-                window.jQuery('.woocommerce-list__item-title:contains(Cash on delivery)').closest('.woocommerce-list__item-inner').find('a.is-primary')[0].click();
+          await browser.waitUntil(async () => {
+            return await browser.execute(() => window.jQuery('span:contains(Cash on delivery)').length > 0);
+          }, { timeout: 30000 });
+
+          await browser.execute(() => {
+            window.jQuery('span:contains(Cash on delivery)').closest('.woocommerce-list__item-inner').find('a.is-primary,button')[0].click();
+          });
+
+          await browser.waitUntil(async () => {
+            return await browser.execute(() => {
+              return window.jQuery('#experimental_wc_settings_payments_main button.is-secondary').length > 0
+                  || window.jQuery('.woocommerce-list__item-inner a.is-secondary').length > 0;
             });
-
-            await browser.waitUntil(async () => {
-                return await browser.execute(() => {
-                    return window.jQuery('.woocommerce-list__item-inner a.is-secondary').length > 0;
-                });
-            }, { timeout: 30000 });
+          }, { timeout: 30000 });
         } else if (isWooCommerceCodInputFound || html.includes('#woocommerce_cod_enabled')) {
           await $('label[for="woocommerce_cod_enabled"]').click();
           await browser.execute(() => window.jQuery('.woocommerce-save-button')[0].click());
@@ -262,10 +282,12 @@ class Website {
               throw e;
             }
           } else {
-            throw new Error('unknown page html in woocommerce setup');
+            await this.dumpHtml();
+            throw new Error('unknown page html in woocommerce setup (no save button)');
           }
         } else {
-            throw new Error('unknown page html in woocommerce setup');
+          await this.dumpHtml();
+          throw new Error('unknown page html in woocommerce setup');
         }
       });
     }
