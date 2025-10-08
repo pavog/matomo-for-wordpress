@@ -8,7 +8,7 @@
 # This value can be found in the development keepass database.
 #
 
-name: Matomo for WordPress Tests
+name: Tests for ${{ github.ref }}
 
 on:
   workflow_dispatch:
